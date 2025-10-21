@@ -24,10 +24,10 @@ SET GLOBAL event_scheduler = ON;
 ```
 ## 注意点
 
-MySQLの仕様上、GRANTやDROP USERを行っても、既にログイン中のセッションは権限を保持し続けます。
-設定した権限が反映されるようにするには、ログアウトしてログインし直す必要があります。
+MySQLの仕様上、GRANTやDROP USERを行っても、既にログイン中のセッションには反映されません。
+ユーザー情報が反映されるようにするには、ログアウトしてログインし直す必要があります。
 
-この動作が要件上不十分な場合は、クリーンアップ処理の中で、該当ユーザーのプロセスIDを全てKILLするように改修してください。
+この動作が要件上、不十分な場合は、クリーンアップ処理の中で該当ユーザーのプロセスIDを全てKILLするように改修してください。
 
 ## 環境設定
 
@@ -40,9 +40,6 @@ Dockerを利用してスクリプトの動作確認をする際は、環境変�
 cp .env.example .env
 
 # .envファイルを編集してパスワードなどを設定
-# 特に以下の項目は必ず変更してください：
-# - ROOT_PASS: MySQLのrootパスワード
-# - DB_PASS: アプリケーション用データベースのパスワード
 ```
 
 `.env`ファイルの設定例：
@@ -62,12 +59,6 @@ TZ=Asia/Tokyo
 ## セットアップ手順
 
 以下の順序でスクリプトを実行してください。
-
-### 0. 管理データベースの作成（自動）
-
-**重要**: このステップは管理テーブル作成時に自動的に実行されます。
-
-管理データベース `admin_tmpuser` は、一時ユーザーの管理情報を格納するための専用データベースです。一時ユーザーはこのデータベースにアクセスできないため、自分の有効期限などを改ざんすることはできません。
 
 ### 1. ロールの作成（必須）
 
@@ -110,32 +101,41 @@ mysql -u root -p < scripts/create_role.sql
 GRANT SELECT, SHOW VIEW ON test.* TO role_test_read_data;
 ```
 
+#### ロールのネーミングルール
 
-### 2. 管理テーブルの作成
+このスクリプトでは、次のようなネーミングルールにしています。  
+MySQLではロールは `mysql.user` に格納され、ユーザーとロールの区別がつきにくいです。  
+このため接頭辞を付けることを推奨します。
 
-```bash
-mysql -u root -p < work/scripts/admin_temp_user_leases.sql
+```
+<接頭辞（role）>_<データベース名>_<ロール名>
 ```
 
-`admin_tmpuser` データベースと、一時ユーザーのリース情報を管理する `admin_temp_user_leases` テーブルを作成します。
+### 2. 管理データベースと管理テーブルの作成
+
+```bash
+mysql -h 127.0.0.1 -u root -p < scripts/admin_temp_user_leases.sql
+```
+
+`admin_tmpuser` データベースと、一時ユーザーのリース情報を管理する `leases` テーブルを作成します。
 
 ### 3. ストアドプロシージャのインストール
 
 ```bash
 # ユーザー作成プロシージャ
-mysql -u root -p < work/scripts/create_temporary_user.sql
+mysql -h 127.0.0.1 -u root -p < scripts/create_temporary_user.sql
 
 # ユーザー更新プロシージャ
-mysql -u root -p < work/scripts/alter_temporary_user.sql
+mysql -h 127.0.0.1 -u root -p < cripts/alter_temporary_user.sql
 
 # ユーザー削除プロシージャ
-mysql -u root -p < work/scripts/drop_temporary_user.sql
+mysql -h 127.0.0.1 -u root -p < scripts/drop_temporary_user.sql
 ```
 
 ### 4. 自動クリーンアップイベントのインストール
 
 ```bash
-mysql -u root -p < work/scripts/ev_tmpuser_cleanup.sql
+mysql -h 127.0.0.1 -u root -p < scripts/ev_tmpuser_cleanup.sql
 ```
 
 期限切れユーザーを1分ごとに自動削除するイベントを作成します。
@@ -208,10 +208,6 @@ SHOW GRANTS FOR 'username'@'hostname';
 
 `test.sql`を使用して、各機能の動作確認ができます。
 
-```bash
-mysql -u root -p test < work/scripts/test.sql
-```
-
 **テスト内容**:
 
 1. **create_temporary_user のテスト**:
@@ -255,7 +251,7 @@ mysql -u root -p test < work/scripts/test.sql
 - **管理データの分離**: 
   - 管理テーブル (`admin_temp_user_leases`) は専用データベース (`admin_tmpuser`) に格納
   - 一時ユーザーは `admin_tmpuser` データベースにアクセスできないため、自分の有効期限やリース情報を改ざんできない
-  - 一時ユーザーは `test` データベース（またはロールで指定されたデータベース）のみにアクセス可能
+  - 一時ユーザーは ロールで指定されたデータベースのみにアクセス可能
 
 ### 運用上の注意
 
@@ -281,11 +277,3 @@ mysql -u root -p test < work/scripts/test.sql
 
 - **drop_temporary_user**:
   - 指定されたユーザーが存在しない
-
-## ライセンス
-
-このプロジェクトはオープンソースです。
-
-## 貢献
-
-プルリクエストを歓迎します。大きな変更の場合は、まずissueを開いて変更内容を議論してください。
