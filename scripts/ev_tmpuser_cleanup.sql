@@ -28,17 +28,8 @@ BEGIN
     FETCH cur INTO v_username, v_hostname;
     IF v_done THEN LEAVE read_loop; END IF;
 
-    SET @userhost_lit := CONCAT(QUOTE(v_username), '@', QUOTE(v_hostname));
-
-    -- ユーザーを削除
-    SET @sql := CONCAT('DROP USER IF EXISTS ', @userhost_lit);
-    PREPARE stmt FROM @sql;
-    EXECUTE stmt;
-    DEALLOCATE PREPARE stmt;
-
-    -- leases レコードを削除
-    DELETE FROM admin_tmpuser.leases
-    WHERE username = v_username AND hostname = v_hostname;
+    -- 一時ユーザー削除プロシージャを呼び出し
+    CALL admin_tmpuser.drop_temporary_user(v_username, v_hostname);
 
   END LOOP;
   CLOSE cur;
