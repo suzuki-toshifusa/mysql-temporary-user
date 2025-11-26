@@ -1,9 +1,13 @@
 -- ロールも作らず、ユーザー作成、権限付与、イベント作成もシンプルに行うSQL
 -- 修正箇所：ユーザー名、イベント名
-CREATE USER IF NOT EXISTS 'suzukito'@'%' IDENTIFIED BY RANDOM PASSWORD;
 
+-- ユーザー作成
+CREATE USER IF NOT EXISTS 'suzukito'@'%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS';
+
+-- 権限付与
 GRANT ALL ON test.* TO 'suzukito'@'%';
 
+-- イベント作成
 DELIMITER $$
 
 CREATE EVENT `ev_tmpuser_expire_suzukito`
@@ -29,10 +33,7 @@ CREATE EVENT `ev_tmpuser_expire_suzukito`
         -- エラーが出ても続行
         BEGIN
             DECLARE CONTINUE HANDLER FOR SQLEXCEPTION BEGIN END;
-            SET @kill_sql = CONCAT('KILL ', v_process_id);
-            PREPARE kill_stmt FROM @kill_sql;
-            EXECUTE kill_stmt;
-            DEALLOCATE PREPARE kill_stmt;
+            CALL mysql.rds_kill(v_process_id);
         END;
     END LOOP;
     CLOSE cur_processes;
@@ -42,3 +43,6 @@ CREATE EVENT `ev_tmpuser_expire_suzukito`
   END
 $$
 DELIMITER ;
+
+-- イベントの確認
+SELECT * FROM information_schema.events\G
